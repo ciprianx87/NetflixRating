@@ -1,0 +1,7 @@
+{
+  "name": "netflix-rating",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Browse the Netflix catalogue per country (via TMDB)",
+  "scripts": { "start": "node server.js" }
+}

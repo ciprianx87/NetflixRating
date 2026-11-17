@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Netflix Catalogue</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="logo">N</span><span>Catalogue</span></div>
+    <div class="controls">
+      <label class="field">
+        <span>Country</span>
+        <select id="region"></select>
+      </label>
+      <label class="field">
+        <span>Sort</span>
+        <select id="sort">
+          <option value="popularity.desc">Most popular</option>
+          <option value="primary_release_date.desc">Newest</option>
+          <option value="vote_average.desc">Top rated (TMDB)</option>
+          <option value="title.asc">Title A–Z</option>
+        </select>
+      </label>
+      <label class="field search">
+        <span>Filter</span>
+        <input id="filter" type="search" placeholder="Filter loaded titles…" />
+      </label>
+    </div>
+  </header>
+
+  <main>
+    <div class="summary" id="summary">Loading…</div>
+    <section class="grid" id="grid"></section>
+    <div class="status" id="status"></div>
+    <div id="sentinel"></div>
+  </main>
+
+  <template id="card-tpl">
+    <article class="card">
+      <div class="poster"><img loading="lazy" alt="" /></div>
+      <div class="meta">
+        <h3 class="title"></h3>
+        <p class="sub"></p>
+      </div>
+      <div class="overlay"><p></p></div>
+    </article>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>

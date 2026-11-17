@@ -1,0 +1,5 @@
+{
+  "tmdbApiKey": "PASTE_YOUR_TMDB_API_KEY_OR_READ_ACCESS_TOKEN",
+  "defaultRegion": "RO",
+  "port": 3000
+}
