@@ -1,5 +1,8 @@
 {
   "tmdbApiKey": "PASTE_YOUR_TMDB_API_KEY_OR_READ_ACCESS_TOKEN",
+  "omdbApiKey": "PASTE_YOUR_OMDB_API_KEY",
+  "omdbDailyLimit": 900,
+  "ratingRefreshDays": 30,
   "defaultRegion": "RO",
   "port": 3000
 }

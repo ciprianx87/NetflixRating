@@ -5,50 +5,56 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Netflix Catalogue</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <header class="topbar">
     <div class="brand"><span class="logo">N</span><span>Catalogue</span></div>
     <div class="controls">
-      <label class="field">
-        <span>Country</span>
-        <select id="region"></select>
-      </label>
-      <label class="field">
-        <span>Sort</span>
-        <select id="sort">
-          <option value="popularity.desc">Most popular</option>
-          <option value="primary_release_date.desc">Newest</option>
-          <option value="vote_average.desc">Top rated (TMDB)</option>
-          <option value="title.asc">Title A–Z</option>
+      <label class="field"><span>Country</span><select id="region"></select></label>
+      <label class="field search"><span>Search</span><input id="filter" type="search" placeholder="Title…" /></label>
+      <label class="field"><span>Min IMDb</span>
+        <select id="minRating">
+          <option value="0">Any</option><option value="6">6+</option><option value="7">7+</option>
+          <option value="7.5">7.5+</option><option value="8">8+</option>
         </select>
       </label>
-      <label class="field search">
-        <span>Filter</span>
-        <input id="filter" type="search" placeholder="Filter loaded titles…" />
-      </label>
+      <label class="field"><span>Genre</span><select id="genre"><option value="">All</option></select></label>
     </div>
   </header>
 
-  <main>
-    <div class="summary" id="summary">Loading…</div>
-    <section class="grid" id="grid"></section>
-    <div class="status" id="status"></div>
-    <div id="sentinel"></div>
-  </main>
+  <section class="syncbar">
+    <div class="syncinfo" id="syncinfo">Loading…</div>
+    <div class="syncactions">
+      <span class="jobmsg" id="jobmsg"></span>
+      <button id="syncCatalog" class="btn">Sync catalogue</button>
+      <button id="syncRatings" class="btn primary">Refresh IMDb ratings</button>
+    </div>
+    <div class="progress" id="progress"><div></div></div>
+  </section>
 
-  <template id="card-tpl">
-    <article class="card">
-      <div class="poster"><img loading="lazy" alt="" /></div>
-      <div class="meta">
-        <h3 class="title"></h3>
-        <p class="sub"></p>
-      </div>
-      <div class="overlay"><p></p></div>
-    </article>
-  </template>
+  <main>
+    <div class="tablewrap">
+      <table class="grid">
+        <thead>
+          <tr>
+            <th class="c-thumb"></th>
+            <th data-sort="title">Title</th>
+            <th data-sort="year" class="num">Year</th>
+            <th class="c-genre">Genres</th>
+            <th data-sort="imdb_rating" class="num">IMDb</th>
+            <th data-sort="imdb_votes" class="num c-votes">Votes</th>
+            <th data-sort="tmdb_rating" class="num c-tmdb">TMDB</th>
+            <th data-sort="first_seen" class="c-date">Added</th>
+            <th data-sort="rating_updated_at" class="c-date">Rating checked</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <div class="status" id="status"></div>
+  </main>
 
   <script src="app.js"></script>
 </body>
