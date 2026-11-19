@@ -30,7 +30,7 @@ const TITLES_SQL = `
     added_at          TEXT NOT NULL,            -- first time we saw it anywhere
     updated_at        TEXT NOT NULL,            -- last time TMDB metadata changed
     rating_updated_at TEXT,                     -- last time IMDb rating was fetched
-    lgbt              INTEGER,                  -- 1 = has LGBT-related TMDB keywords, 0 = none, NULL = not checked yet
+    lgbt              INTEGER,                  -- 1 = LGBT (TMDB keywords, Wikidata or description), 0 = none, NULL = not checked yet
     PRIMARY KEY (kind, id)
   )`;
 const AVAIL_SQL = (name) => `

@@ -56,4 +56,7 @@ Free GitHub accounts can only use Pages on public repositories, so the repo (inc
 Older movies-only snapshots (format 1) can still be restored; every row is treated as a movie. A database from before TV support is migrated automatically the first time the server, export or build runs.
 
 ## LGBT themes filter
-Each catalogue sync also asks TMDB which Netflix titles carry LGBT-related keywords (lgbt, lesbian, gay theme, transgender, queer, drag queen, coming out and similar; the list is `LGBT_KEYWORDS` in `server.js`). Those titles get `lgbt = 1` in the database, and the **LGBT themes** filter can show all titles, hide them, or show only them. TMDB keywords are added by its community, so coverage is good but not complete.
+Each catalogue sync tags titles as LGBT (`lgbt = 1`) from three sources, and the **LGBT themes** filter can show all titles, hide them, or show only them:
+1. **TMDB keywords** (lgbt, lesbian, gay theme, transgender, queer, drag queen, coming out and similar; the list is `LGBT_KEYWORDS` in `server.js`).
+2. **Wikidata**: titles whose genre or main subject is an LGBT topic, matched by IMDb id. This is broader and also includes titles with notable LGBT characters. If Wikidata is unreachable, this step is skipped.
+3. **Description words**: gay, lesbian, bisexual, transgender, queer, drag queen and similar in the TMDB description (`LGBT_WORDS` in `server.js`). This can occasionally produce a false match.

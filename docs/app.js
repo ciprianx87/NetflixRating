@@ -52,7 +52,7 @@ function rowHtml(m) {
   const meta = [m.year, genres, m.imdb_votes != null ? `${fmtVotes(m.imdb_votes)} votes` : ''].filter(Boolean).join(' · ');
   return `<tr title="${esc(m.overview)}">
     <td class="c-thumb">${thumb ? `<img class="thumb" loading="lazy" src="${esc(thumb)}" alt="">` : '<div class="thumb"></div>'}</td>
-    <td class="c-title"><div class="t-title">${esc(m.title)}${isNew ? '<span class="new">NEW</span>' : ''}</div>
+    <td class="c-title"><div class="t-title">${esc(m.title)}${m.lgbt === 1 ? '<i class="pride" title="LGBT themes" aria-label="LGBT themes"></i>' : ''}${isNew ? '<span class="new">NEW</span>' : ''}</div>
       <div class="t-meta">${esc(meta)}</div><div class="t-orig">${esc(m.overview)}</div></td>
     <td class="num c-year">${esc(m.year) || '—'}</td>
     <td class="genres c-genre">${esc(genres)}</td>
@@ -105,6 +105,7 @@ function render() {
   }
   sortSel.value = sortVal;
   const active = [min, minVotes, genre, lgbt].filter(Boolean).length;
+  $('#lgbt').classList.toggle('on', !!lgbt);
   $('#filtersToggle').textContent = active ? `Filters (${active})` : 'Filters';
 
   statusEl.className = 'status';

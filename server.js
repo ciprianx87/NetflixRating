@@ -9,7 +9,7 @@ if (!fs.existsSync(CONFIG_PATH)) {
   process.exit(1);
 }
 const config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-const PORT = config.port || 3000;
+const PORT = Number(process.env.PORT) || config.port || 3000;
 const OMDB_DAILY_LIMIT = config.omdbDailyLimit || 900; // free tier is 1,000/day; keep a margin
 const NETFLIX_PROVIDER_ID = 8; // TMDB watch-provider id for Netflix
 const TMDB = 'https://api.themoviedb.org/3';
@@ -131,6 +131,48 @@ async function fetchLgbtIds(params, kind) {
   return ids;
 }
 
+// Second source: Wikidata (Wikipedia's open database). Titles whose genre or main subject is an LGBT topic,
+// matched by IMDb id. Broader than TMDB keywords: it also covers titles with notable LGBT characters.
+const WIKIDATA_TOPICS = 'wd:Q17884 wd:Q6636 wd:Q6649 wd:Q43200 wd:Q189125 wd:Q592 wd:Q1035954 wd:Q51415 wd:Q20442589 wd:Q85133165 wd:Q1823134 wd:Q1052281';
+async function fetchWikidataLgbtImdb(imdbIds) {
+  const found = new Set();
+  for (let i = 0; i < imdbIds.length; i += 200) {
+    const values = imdbIds.slice(i, i + 200).map((id) => `"${id}"`).join(' ');
+    const q = `SELECT DISTINCT ?imdb WHERE { VALUES ?imdb { ${values} } ?item wdt:P345 ?imdb .
+      VALUES ?t { ${WIKIDATA_TOPICS} } { ?item wdt:P136 ?t } UNION { ?item wdt:P921 ?t } }`;
+    for (let attempt = 0; ; attempt++) {
+      const r = await fetch('https://query.wikidata.org/sparql?format=json&query=' + encodeURIComponent(q), {
+        headers: { 'User-Agent': 'netflix-rating-local-tool/1.0', accept: 'application/sparql-results+json' },
+        signal: AbortSignal.timeout(60000),
+      });
+      if ((r.status === 429 || r.status >= 500) && attempt < 4) { await new Promise((ok) => setTimeout(ok, 5000 * (attempt + 1))); continue; }
+      if (!r.ok) throw new Error(`Wikidata ${r.status}`);
+      for (const b of (await r.json()).results.bindings) found.add(b.imdb.value);
+      break;
+    }
+    await new Promise((ok) => setTimeout(ok, 1000)); // be polite to the public endpoint
+  }
+  return found;
+}
+
+// Third source: plain words in the TMDB description. "Gay" followed by a capitalised word is skipped (a name, e.g. Gay Talese).
+const LGBT_WORDS = /\b(gay(?! [A-Z])|lesbians?|bisexual|transgender|trans (?:woman|man|girl|boy)|queer|lgbtq?\+?|same-sex|homosexual(?:ity)?|drag (?:queens?|kings?)|non-binary)\b/i;
+
+// All LGBT sources combined → TMDB ids of one kind in a region seen in this sync.
+async function collectLgbtIds(params, kind, region, startedAt) {
+  const ids = new Set(await fetchLgbtIds(params, kind));
+  const rows = store.db.prepare(`SELECT t.id, t.imdb_id, t.overview FROM availability a JOIN titles t ON t.kind = a.kind AND t.id = a.title_id
+    WHERE a.region = ? AND a.kind = ? AND a.last_seen >= ?`).all(region, kind, startedAt);
+  for (const r of rows) if (r.overview && LGBT_WORDS.test(r.overview)) ids.add(r.id);
+  try {
+    const wd = await fetchWikidataLgbtImdb(rows.filter((r) => r.imdb_id).map((r) => r.imdb_id));
+    for (const r of rows) if (wd.has(r.imdb_id)) ids.add(r.id);
+  } catch (e) {
+    console.warn(`Wikidata LGBT check skipped for ${region} ${kind}: ${e.message}`);
+  }
+  return [...ids];
+}
+
 // Fetch every Netflix title of one kind ('movie' or 'tv') in a region from TMDB and store it.
 async function syncCatalogKind(region, kind) {
   const startedAt = store.now();
@@ -155,7 +197,7 @@ async function syncCatalogKind(region, kind) {
     const rest = Array.from({ length: pages - 1 }, (_, i) => i + 2);
     await pool(rest, 6, async (page) => save((await tmdbFetch(endpoint, { ...params, page })).results));
     job.message = `Checking LGBT themes in ${KIND_LABEL[kind]}…`;
-    store.setLgbtTags(region, kind, startedAt, await fetchLgbtIds(params, kind));
+    store.setLgbtTags(region, kind, startedAt, await collectLgbtIds(params, kind, region, startedAt));
     store.stmt.finishSync.run(store.now(), job.done, newTitles, null, syncId);
     return `${job.done.toLocaleString()} ${KIND_LABEL[kind]} (${newTitles} new)`;
   } catch (e) {
