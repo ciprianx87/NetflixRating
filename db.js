@@ -120,20 +120,37 @@ function listMovies(region) {
   return { sync, movies };
 }
 
-// Next batch of movies needing an IMDb rating: never rated first, then the stalest.
-function moviesNeedingRating(region, limit, staleBefore) {
+// Next batch of movies that have never had an IMDb lookup (most popular first).
+// Once a lookup is done (even if IMDb has no rating) the movie is never fetched again.
+function moviesNeedingRating(region, limit) {
   return db.prepare(`
     SELECT m.id, m.imdb_id FROM movies m
     JOIN availability a ON a.movie_id = m.id AND a.region = ?
-    WHERE m.rating_updated_at IS NULL OR m.rating_updated_at < ?
-    ORDER BY m.rating_updated_at IS NOT NULL, m.rating_updated_at, m.popularity DESC
-    LIMIT ?`).all(region, staleBefore, limit);
+    WHERE m.rating_updated_at IS NULL
+    ORDER BY m.popularity DESC
+    LIMIT ?`).all(region, limit);
 }
+
+// Whole-database counts, across all countries.
+function dbStats() {
+  return db.prepare(`
+    SELECT COUNT(*) movies, COUNT(imdb_rating) rated, COUNT(rating_updated_at) checked,
+           COUNT(*) - COUNT(rating_updated_at) pending
+    FROM movies`).get();
+}
+
+// Simple key/value settings, editable from the UI.
+db.exec('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+const getSettingStmt = db.prepare('SELECT value FROM settings WHERE key = ?');
+const setSettingStmt = db.prepare(`INSERT INTO settings (key, value) VALUES (?, ?)
+                                   ON CONFLICT(key) DO UPDATE SET value = excluded.value`);
+const getSetting = (key, fallback) => { const r = getSettingStmt.get(key); return r ? JSON.parse(r.value) : fallback; };
+const setSetting = (key, value) => setSettingStmt.run(key, JSON.stringify(value));
 
 function ratingStats(region) {
   return db.prepare(`
-    SELECT COUNT(*) total, COUNT(m.rating_updated_at) rated, MAX(m.rating_updated_at) last
+    SELECT COUNT(*) total, COUNT(m.imdb_rating) rated, COUNT(m.rating_updated_at) checked, MAX(m.rating_updated_at) last
     FROM availability a JOIN movies m ON m.id = a.movie_id WHERE a.region = ?`).get(region);
 }
 
-module.exports = { db, stmt, now, saveMovie, transaction, listMovies, moviesNeedingRating, ratingStats };
+module.exports = { db, stmt, now, saveMovie, transaction, listMovies, moviesNeedingRating, ratingStats, dbStats, getSetting, setSetting };

@@ -1,7 +1,8 @@
 const $ = (s) => document.querySelector(s);
 const rowsEl = $('#rows'), statusEl = $('#status'), syncInfo = $('#syncinfo'), jobMsg = $('#jobmsg');
 const regionSel = $('#region'), filterInput = $('#filter'), minRatingSel = $('#minRating'), genreSel = $('#genre');
-const btnCatalog = $('#syncCatalog'), btnRatings = $('#syncRatings'), progress = $('#progress');
+const btnCatalog = $('#syncCatalog'), btnRatings = $('#syncRatings'), btnAll = $('#syncAll'), progress = $('#progress');
+const batchInput = $('#ratingBatchSize'), settingsForm = $('#settingsForm'), settingsMsg = $('#settingsMsg');
 
 const state = { region: 'RO', movies: [], genres: {}, sort: { key: 'imdb_rating', dir: -1 }, data: null, polling: false };
 
@@ -20,9 +21,10 @@ function render() {
   const q = filterInput.value.trim().toLowerCase();
   const min = Number(minRatingSel.value);
   const genre = Number(genreSel.value) || null;
+  const minVotes = Number($('#minVotes').value);
   const { key, dir } = state.sort;
   const list = state.movies
-    .filter((m) => (!q || m.title.toLowerCase().includes(q)) && (!min || (m.imdb_rating ?? 0) >= min) && (!genre || m.genre_ids.includes(genre)))
+    .filter((m) => (!q || m.title.toLowerCase().includes(q)) && (!min || (m.imdb_rating ?? 0) >= min) && (!genre || m.genre_ids.includes(genre)) && (!minVotes || (m.imdb_votes ?? 0) >= minVotes))
     .sort((a, b) => {
       const x = a[key], y = b[key];
       if (x == null && y == null) return 0;
@@ -58,14 +60,14 @@ function render() {
 
   statusEl.className = 'status';
   statusEl.textContent = !state.data?.lastSync
-    ? 'No data stored for this country yet. Click “Sync catalogue” to fetch it from TMDB.'
+    ? 'No data stored for this country yet. Open “Sync & settings” and click “Sync Netflix catalogue”.'
     : list.length ? '' : 'No titles match your filters.';
   const d = state.data;
   if (d?.lastSync) {
     const name = regionSel.selectedOptions[0]?.textContent || state.region;
     syncInfo.innerHTML = `<strong>${list.length.toLocaleString()}</strong> of <strong>${state.movies.length.toLocaleString()}</strong> movies on Netflix in <strong>${esc(name)}</strong>
       · catalogue synced ${fmtDateTime(d.lastSync.finishedAt)}
-      · IMDb ratings ${d.ratings.rated.toLocaleString()}/${d.ratings.total.toLocaleString()} (last ${fmtDateTime(d.ratings.last)})`;
+      · ${d.ratings.rated.toLocaleString()} rated here, ${(d.ratings.total - d.ratings.checked).toLocaleString()} waiting (last lookup ${fmtDateTime(d.ratings.last)})`;
   } else {
     syncInfo.textContent = 'Not synced yet';
   }
@@ -85,11 +87,28 @@ async function loadRegion() {
 }
 
 // ----- sync jobs -----
+function showStats(s) {
+  const n = (v) => v.toLocaleString();
+  $('#statMovies').textContent = n(s.db.movies);
+  $('#statRated').textContent = n(s.db.rated);
+  $('#statRatedPct').textContent = s.db.movies ? `${((s.db.rated / s.db.movies) * 100).toFixed(1)}% of saved movies` : '';
+  $('#statPending').textContent = n(s.db.pending);
+  $('#statChecked').textContent = `${n(s.db.checked - s.db.rated)} looked up with no IMDb rating`;
+  $('#statOmdb').textContent = n(s.omdbUsedToday);
+  $('#statOmdbLimit').textContent = s.omdbConfigured ? `of ${n(s.omdbDailyLimit)} allowed` : 'no OMDb key set';
+  $('#omdbCurrent').textContent = s.omdbKeyMasked || 'none';
+  $('#omdbSource').textContent = s.omdbKeySource === 'ui' ? '(saved here)' : s.omdbKeySource === 'config' ? '(from config.json)' : '';
+  $('#omdbClear').hidden = s.omdbKeySource !== 'ui';
+}
+
 function showJob(s) {
   const j = s.job;
-  btnCatalog.disabled = btnRatings.disabled = j.running;
-  btnRatings.title = s.omdbConfigured ? `OMDb used today: ${s.omdbUsedToday}/${s.omdbDailyLimit}` : 'Add omdbApiKey to config.json';
+  showStats(s);
+  btnCatalog.disabled = btnRatings.disabled = btnAll.disabled = j.running;
+  btnRatings.title = s.omdbConfigured ? '' : 'Add an OMDb API key below first';
   if (!s.omdbConfigured) btnRatings.disabled = true;
+  $('#jobDot').hidden = !j.running;
+  btnRatings.textContent = `Sync IMDb ratings (${batchInput.value || '…'})`;
   jobMsg.className = 'jobmsg' + (j.error ? ' error' : '');
   jobMsg.textContent = j.error ? `${j.message}: ${j.error}` : j.running || j.finishedAt ? `${j.region} · ${j.message}` : '';
   progress.classList.toggle('on', j.running);
@@ -148,7 +167,7 @@ async function init() {
   regionSel.value = state.region;
 
   regionSel.onchange = () => { state.region = regionSel.value; savePrefs(); loadRegion(); };
-  filterInput.oninput = minRatingSel.onchange = genreSel.onchange = render;
+  filterInput.oninput = minRatingSel.onchange = genreSel.onchange = $('#minVotes').onchange = render;
   document.querySelectorAll('th[data-sort]').forEach((th) => th.addEventListener('click', () => {
     const key = th.dataset.sort;
     state.sort = { key, dir: state.sort.key === key ? -state.sort.dir : key === 'title' ? 1 : -1 };
@@ -156,6 +175,69 @@ async function init() {
   }));
   btnCatalog.onclick = () => start('catalog');
   btnRatings.onclick = () => start('ratings');
+  btnAll.onclick = () => start('all');
+
+  // Tabs (remembered in the URL hash so reload keeps the tab)
+  const showTab = (tab) => {
+    if (!['movies', 'sync'].includes(tab)) tab = 'movies';
+    document.body.dataset.tab = tab;
+    $('#tab-movies').hidden = tab !== 'movies';
+    $('#tab-sync').hidden = tab !== 'sync';
+    document.querySelectorAll('.tab').forEach((b) => b.setAttribute('aria-selected', b.dataset.tab === tab));
+    if (location.hash.slice(1) !== tab) history.replaceState(null, '', `#${tab}`);
+  };
+  document.querySelectorAll('.tab').forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
+  window.onhashchange = () => showTab(location.hash.slice(1));
+  showTab(location.hash.slice(1));
+  const showCountry = () => ($('#syncCountry').textContent = regionSel.selectedOptions[0]?.textContent || state.region);
+  regionSel.addEventListener('change', showCountry);
+  showCountry();
+
+  // OMDb key
+  const omdbMsg = $('#omdbMsg');
+  const flash = (el, text, isError) => {
+    el.className = 'saved' + (isError ? ' error' : '');
+    el.textContent = text;
+    clearTimeout(el._t);
+    el._t = setTimeout(() => (el.textContent = ''), isError ? 8000 : 3000);
+  };
+  const saveKey = async (key) => {
+    flash(omdbMsg, key ? 'Testing key…' : 'Removing…');
+    try {
+      await api('/api/omdb-key', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key }) });
+      $('#omdbKey').value = '';
+      flash(omdbMsg, key ? 'Key works and is saved' : 'Saved key removed');
+      showJob(await api('/api/status'));
+    } catch (err) { flash(omdbMsg, err.message, true); }
+  };
+  $('#omdbForm').onsubmit = (e) => {
+    e.preventDefault();
+    const key = $('#omdbKey').value.trim();
+    if (key) saveKey(key);
+  };
+  $('#omdbClear').onclick = () => {
+    if (confirm('Remove the key saved here? The key from config.json (if any) will be used instead.')) saveKey('');
+  };
+
+  // Configuration section
+  try { batchInput.value = (await api('/api/settings')).ratingBatchSize; } catch {}
+  settingsForm.onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const s = await api('/api/settings', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ratingBatchSize: Number(batchInput.value) }),
+      });
+      batchInput.value = s.ratingBatchSize;
+      btnRatings.textContent = `Sync IMDb ratings (${s.ratingBatchSize})`;
+      settingsMsg.className = 'saved';
+      settingsMsg.textContent = 'Saved';
+    } catch (err) {
+      settingsMsg.className = 'saved error';
+      settingsMsg.textContent = err.message;
+    }
+    setTimeout(() => (settingsMsg.textContent = ''), 3000);
+  };
 
   await loadRegion();
   showJob(await api('/api/status'));

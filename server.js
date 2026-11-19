@@ -11,7 +11,6 @@ if (!fs.existsSync(CONFIG_PATH)) {
 const config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
 const PORT = config.port || 3000;
 const OMDB_DAILY_LIMIT = config.omdbDailyLimit || 900; // free tier is 1,000/day; keep a margin
-const RATING_REFRESH_DAYS = config.ratingRefreshDays || 30;
 const NETFLIX_PROVIDER_ID = 8; // TMDB watch-provider id for Netflix
 const TMDB = 'https://api.themoviedb.org/3';
 
@@ -36,9 +35,9 @@ async function tmdbFetch(endpoint, params = {}) {
   }
 }
 
-async function omdbFetch(imdbId) {
+async function omdbFetch(imdbId, key) {
   const url = new URL('https://www.omdbapi.com/');
-  url.searchParams.set('apikey', config.omdbApiKey);
+  url.searchParams.set('apikey', key ?? omdbKey());
   url.searchParams.set('i', imdbId);
   const body = await (await fetch(url)).json();
   if (body.Response === 'False') {
@@ -103,19 +102,69 @@ async function syncCatalog(region) {
   }
 }
 
-// Fetch IMDb ratings for movies that have none or a stale one, within the daily OMDb budget.
-const omdbUsage = { day: '', count: 0 };
-async function syncRatings(region) {
-  if (!config.omdbApiKey) throw new Error('No omdbApiKey in config.json');
+// ---------- settings (editable in the UI, stored in the DB) ----------
+const SETTINGS = {
+  ratingBatchSize: { default: 50, min: 1, max: 1000 }, // movies rated per "Refresh IMDb ratings" run
+};
+function getSettings() {
+  return Object.fromEntries(Object.entries(SETTINGS).map(([k, s]) => [k, store.getSetting(k, s.default)]));
+}
+function saveSettings(input) {
+  for (const [k, s] of Object.entries(SETTINGS)) {
+    if (input[k] === undefined) continue;
+    const v = Math.round(Number(input[k]));
+    if (!Number.isFinite(v) || v < s.min || v > s.max) {
+      throw Object.assign(new Error(`${k} must be between ${s.min} and ${s.max}`), { status: 400 });
+    }
+    store.setSetting(k, v);
+  }
+  return getSettings();
+}
+
+// OMDb key: one saved from the UI (in the DB) wins over config.json.
+const omdbKey = () => store.getSetting('omdbApiKey', null) || config.omdbApiKey || null;
+const omdbKeySource = () => (store.getSetting('omdbApiKey', null) ? 'ui' : config.omdbApiKey ? 'config' : null);
+const maskKey = (k) => (k ? `${'•'.repeat(Math.max(k.length - 4, 0))}${k.slice(-4)}` : null);
+
+async function saveOmdbKey(body) {
+  const key = String(body?.key ?? '').trim();
+  if (!key) { // empty = remove the UI key and fall back to config.json
+    store.setSetting('omdbApiKey', null);
+    return { saved: true, source: omdbKeySource(), masked: maskKey(omdbKey()) };
+  }
+  if (!/^[A-Za-z0-9]{6,40}$/.test(key)) throw Object.assign(new Error('That does not look like an OMDb key'), { status: 400 });
+  try {
+    await omdbFetch('tt0111161', key); // test lookup before saving
+  } catch (e) {
+    throw Object.assign(new Error(`OMDb rejected this key: ${e.message}`), { status: 400 });
+  }
+  store.setSetting('omdbApiKey', key);
+  store.setSetting('omdbUsage', { day: new Date().toISOString().slice(0, 10), count: 1 }); // new key, fresh daily quota
+  return { saved: true, source: 'ui', masked: maskKey(key) };
+}
+
+// OMDb usage per day, persisted so restarts don't reset the count.
+function omdbUsage() {
   const today = new Date().toISOString().slice(0, 10);
-  if (omdbUsage.day !== today) Object.assign(omdbUsage, { day: today, count: 0 });
-  const budget = OMDB_DAILY_LIMIT - omdbUsage.count;
+  const u = store.getSetting('omdbUsage', { day: today, count: 0 });
+  return u.day === today ? u : { day: today, count: 0 };
+}
+function countOmdbCall() { const u = omdbUsage(); u.count++; store.setSetting('omdbUsage', u); }
+
+// Fetch IMDb ratings for movies that have never been looked up, up to the configured batch size.
+async function syncRatings(region) {
+  if (!omdbKey()) throw new Error('No OMDb API key — add one in Sync & settings');
+  const budget = OMDB_DAILY_LIMIT - omdbUsage().count;
   if (budget <= 0) return 'Daily OMDb budget used up — try again tomorrow';
 
-  const staleBefore = new Date(Date.now() - RATING_REFRESH_DAYS * 864e5).toISOString();
-  const batch = store.moviesNeedingRating(region, budget, staleBefore);
+  const batch = store.moviesNeedingRating(region, Math.min(getSettings().ratingBatchSize, budget));
+  job.done = 0;
   job.total = batch.length;
-  if (!batch.length) return 'All ratings are up to date';
+  if (!batch.length) {
+    return store.ratingStats(region).total
+      ? 'All movies in this country already have an IMDb lookup'
+      : 'No movies stored for this country — sync the Netflix catalogue first';
+  }
   let rated = 0, stopped = null;
 
   await pool(batch, 4, async (m) => {
@@ -129,7 +178,7 @@ async function syncRatings(region) {
       if (!imdbId) {
         store.stmt.setRating.run(null, null, store.now(), m.id); // nothing to look up; don't retry until stale
       } else {
-        omdbUsage.count++;
+        countOmdbCall();
         const r = await omdbFetch(imdbId);
         store.stmt.setRating.run(r.rating, r.votes, store.now(), m.id);
         if (r.rating != null) rated++;
@@ -192,9 +241,28 @@ const routes = {
     };
   },
 
-  'GET /api/status': () => ({ job, omdbConfigured: !!config.omdbApiKey, omdbUsedToday: omdbUsage.count, omdbDailyLimit: OMDB_DAILY_LIMIT }),
+  'GET /api/status': () => ({
+    job, omdbConfigured: !!omdbKey(), omdbKeyMasked: maskKey(omdbKey()), omdbKeySource: omdbKeySource(), omdbUsedToday: omdbUsage().count, omdbDailyLimit: OMDB_DAILY_LIMIT,
+    db: store.dbStats(),
+  }),
+  'GET /api/settings': () => getSettings(),
+  'POST /api/settings': (q, body) => saveSettings(body || {}),
+  'POST /api/omdb-key': (q, body) => {
+    if (job.running) throw Object.assign(new Error('Wait for the current sync to finish'), { status: 409 });
+    return saveOmdbKey(body);
+  },
   'POST /api/sync/catalog': (q) => { const r = regionParam(q); return startJob('catalog', r, () => syncCatalog(r)); },
   'POST /api/sync/ratings': (q) => { const r = regionParam(q); return startJob('ratings', r, () => syncRatings(r)); },
+  // Catalogue first, then one batch of ratings.
+  'POST /api/sync/all': (q) => {
+    const r = regionParam(q);
+    return startJob('catalog + ratings', r, async () => {
+      const a = await syncCatalog(r);
+      if (!omdbKey()) return `${a} (ratings skipped: no OMDb key)`;
+      job.message = 'Starting ratings…';
+      return `${a} · ${await syncRatings(r)}`;
+    });
+  },
 };
 
 const MIME = { '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml' };
@@ -206,7 +274,13 @@ http
     const route = routes[`${req.method} ${url.pathname}`];
     if (route) {
       try {
-        const data = await route(url.searchParams);
+        let body = null;
+        if (req.method === 'POST') {
+          let raw = '';
+          for await (const chunk of req) { raw += chunk; if (raw.length > 1e5) break; }
+          try { body = raw ? JSON.parse(raw) : null; } catch { throw Object.assign(new Error('Invalid JSON'), { status: 400 }); }
+        }
+        const data = await route(url.searchParams, body);
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify(data));
       } catch (e) {

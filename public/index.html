@@ -8,33 +8,38 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
 </head>
-<body>
+<body data-tab="movies">
   <header class="topbar">
-    <div class="brand"><span class="logo">N</span><span>Catalogue</span></div>
+    <div class="topleft">
+      <div class="brand"><span class="logo">N</span><span>Catalogue</span></div>
+      <nav class="tabs" role="tablist">
+        <button class="tab" role="tab" data-tab="movies">Movies</button>
+        <button class="tab" role="tab" data-tab="sync">Sync &amp; settings <span class="dot" id="jobDot" hidden></span></button>
+      </nav>
+    </div>
     <div class="controls">
       <label class="field"><span>Country</span><select id="region"></select></label>
-      <label class="field search"><span>Search</span><input id="filter" type="search" placeholder="Title…" /></label>
-      <label class="field"><span>Min IMDb</span>
+      <label class="field search movies-only"><span>Search</span><input id="filter" type="search" placeholder="Title…" /></label>
+      <label class="field movies-only"><span>Min IMDb</span>
         <select id="minRating">
           <option value="0">Any</option><option value="6">6+</option><option value="7">7+</option>
           <option value="7.5">7.5+</option><option value="8">8+</option>
         </select>
       </label>
-      <label class="field"><span>Genre</span><select id="genre"><option value="">All</option></select></label>
-    </div>
-  </header>
-
-  <section class="syncbar">
-    <div class="syncinfo" id="syncinfo">Loading…</div>
-    <div class="syncactions">
-      <span class="jobmsg" id="jobmsg"></span>
-      <button id="syncCatalog" class="btn">Sync catalogue</button>
-      <button id="syncRatings" class="btn primary">Refresh IMDb ratings</button>
+      <label class="field movies-only"><span>Min votes</span>
+        <select id="minVotes">
+          <option value="0">Any</option><option value="1000">1k+</option><option value="10000">10k+</option>
+          <option value="50000">50k+</option><option value="100000">100k+</option><option value="500000">500k+</option>
+        </select>
+      </label>
+      <label class="field movies-only"><span>Genre</span><select id="genre"><option value="">All</option></select></label>
     </div>
     <div class="progress" id="progress"><div></div></div>
-  </section>
+  </header>
 
-  <main>
+  <!-- ===== Movies tab ===== -->
+  <main id="tab-movies" class="tabpane">
+    <div class="syncinfo" id="syncinfo">Loading…</div>
     <div class="tablewrap">
       <table class="grid">
         <thead>
@@ -55,6 +60,58 @@
     </div>
     <div class="status" id="status"></div>
   </main>
+
+  <!-- ===== Sync & settings tab ===== -->
+  <section id="tab-sync" class="tabpane panel" hidden>
+    <div class="stats">
+      <div class="stat"><span class="label">Movies in database</span><span class="value" id="statMovies">–</span><span class="hint">all countries</span></div>
+      <div class="stat"><span class="label">With IMDb rating</span><span class="value" id="statRated">–</span><span class="hint" id="statRatedPct"></span></div>
+      <div class="stat"><span class="label">Waiting for lookup</span><span class="value" id="statPending">–</span><span class="hint" id="statChecked"></span></div>
+      <div class="stat"><span class="label">OMDb calls today</span><span class="value" id="statOmdb">–</span><span class="hint" id="statOmdbLimit"></span></div>
+    </div>
+
+    <div class="card-box">
+      <h2>Sync data</h2>
+      <p class="note">Runs for the country selected at the top: <strong id="syncCountry">–</strong></p>
+      <div class="syncactions">
+        <button id="syncCatalog" class="btn">Sync Netflix catalogue</button>
+        <button id="syncRatings" class="btn">Sync IMDb ratings</button>
+        <button id="syncAll" class="btn primary">Sync both</button>
+      </div>
+      <div class="jobmsg" id="jobmsg"></div>
+    </div>
+
+    <div class="cards">
+      <form class="card-box" id="settingsForm">
+        <h2>Configuration</h2>
+        <label class="setting">
+          <span>Movies per IMDb sync</span>
+          <input id="ratingBatchSize" type="number" min="1" max="1000" step="1" required />
+        </label>
+        <p class="note">Only movies that have never been looked up are fetched. Free OMDb keys allow 1,000 calls a day.</p>
+        <div class="settings-actions">
+          <button type="submit" class="btn">Save</button>
+          <span class="saved" id="settingsMsg"></span>
+        </div>
+      </form>
+
+      <form class="card-box" id="omdbForm" autocomplete="off">
+        <h2>OMDb API key</h2>
+        <p class="note">Current key: <strong id="omdbCurrent">–</strong> <span id="omdbSource"></span></p>
+        <label class="setting">
+          <span>New key</span>
+          <input id="omdbKey" type="password" placeholder="e.g. a1b2c3d4" spellcheck="false" autocomplete="off" />
+        </label>
+        <p class="note">The key is tested with OMDb before it's saved. Get a free one at
+          <a href="https://www.omdbapi.com/apikey.aspx" target="_blank" rel="noopener">omdbapi.com</a>.</p>
+        <div class="settings-actions">
+          <button type="submit" class="btn">Test &amp; save</button>
+          <button type="button" class="btn ghost" id="omdbClear" hidden>Remove saved key</button>
+          <span class="saved" id="omdbMsg"></span>
+        </div>
+      </form>
+    </div>
+  </section>
 
   <script src="app.js"></script>
 </body>
