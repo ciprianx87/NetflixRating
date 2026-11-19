@@ -4,11 +4,11 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#ffffff" />
-  <meta name="description" content="Movies on Netflix by country, with IMDb ratings" />
+  <meta name="description" content="Movies and TV shows on Netflix by country, with IMDb ratings" />
   <title>Netflix Catalogue</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=mwncr3qj" />
+  <link rel="stylesheet" href="styles.css?v=mwne941r" />
 </head>
 <body data-tab="movies">
   <header class="topbar">
@@ -17,6 +17,12 @@
       <button type="button" class="btn filters-toggle movies-only" id="filtersToggle" aria-expanded="false">Filters</button>
     </div>
     <div class="controls">
+      <div class="field kind-field movies-only"><span>Show</span>
+        <div class="seg" id="kindSeg" role="radiogroup" aria-label="Movies or TV shows">
+          <button type="button" data-kind="movie" role="radio">Movies</button>
+          <button type="button" data-kind="tv" role="radio">TV shows</button>
+        </div>
+      </div>
       <label class="field"><span>Country</span><select id="region"></select></label>
       <label class="field search movies-only"><span>Search</span><input id="filter" type="search" placeholder="Title…" /></label>
       <label class="field movies-only extra"><span>Sort</span>
@@ -39,6 +45,11 @@
         </select>
       </label>
       <label class="field movies-only extra"><span>Genre</span><select id="genre"><option value="">All</option></select></label>
+      <label class="field movies-only extra" title="Based on TMDB keywords such as LGBT, lesbian, transgender, queer"><span>LGBT themes</span>
+        <select id="lgbt">
+          <option value="">Show</option><option value="hide">Hide</option><option value="only">Only</option>
+        </select>
+      </label>
     </div>
     <div class="progress" id="progress"><div></div></div>
   </header>
@@ -74,7 +85,7 @@
   </main>
 
 
-  <script>window.STATIC_SITE = {"builtAt":"2026-11-19T09:33:06.460Z"};</script>
-  <script src="app.js?v=mwncr3qj"></script>
+  <script>window.STATIC_SITE = {"builtAt":"2026-11-19T10:15:06.276Z"};</script>
+  <script src="app.js?v=mwne941r"></script>
 </body>
 </html>

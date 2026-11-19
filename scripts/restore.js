@@ -40,13 +40,13 @@ function convert(v, col, where) {
 }
 
 function readSheet(wb, def) {
-  const ws = wb.getWorksheet(def.sheet);
+  const ws = wb.getWorksheet(def.sheet) || (def.legacySheet && wb.getWorksheet(def.legacySheet));
   if (!ws) throw new Error(`Sheet "${def.sheet}" is missing`);
   const headerIdx = {};
   ws.getRow(1).eachCell((cell, i) => { headerIdx[String(plain(cell.value)).trim()] = i; });
   const cols = def.columns.filter((c) => !c.info);
-  const missing = cols.filter((c) => !(c.header in headerIdx)).map((c) => c.header);
-  if (missing.length) throw new Error(`Sheet "${def.sheet}" is missing columns: ${missing.join(', ')}`);
+  const missing = cols.filter((c) => !(c.header in headerIdx) && c.default === undefined).map((c) => c.header);
+  if (missing.length) throw new Error(`Sheet "${ws.name}" is missing columns: ${missing.join(', ')}`);
 
   const rows = [];
   ws.eachRow((row, r) => {
@@ -54,10 +54,13 @@ function readSheet(wb, def) {
     const obj = {};
     let empty = true;
     for (const c of cols) {
-      obj[c.key] = convert(row.getCell(headerIdx[c.header]).value, c, `${def.sheet} row ${r}, ${c.header}`);
+      if (!(c.header in headerIdx)) continue; // optional column from an older format
+      obj[c.key] = convert(row.getCell(headerIdx[c.header]).value, c, `${ws.name} row ${r}, ${c.header}`);
       if (obj[c.key] != null) empty = false;
     }
-    if (!empty) rows.push({ ...obj, _row: r });
+    if (empty) return;
+    for (const c of cols) if (obj[c.key] == null && c.default !== undefined) obj[c.key] = c.default;
+    rows.push({ ...obj, _row: r });
   });
   return rows;
 }
@@ -91,19 +94,22 @@ async function main() {
   require_(Number(info.format_version) <= FORMAT_VERSION,
     `Snapshot format ${info.format_version} is newer than this code supports (${FORMAT_VERSION}). Update the code first.`);
 
-  const movies = readSheet(wb, SHEETS.movies);
+  const titles = readSheet(wb, SHEETS.titles);
   const availability = readSheet(wb, SHEETS.availability);
   const syncs = readSheet(wb, SHEETS.catalog_syncs);
 
+  const KINDS = ['movie', 'tv'];
   const ids = new Set();
-  for (const m of movies) {
-    require_(m.id != null && m.title, `Movies row ${m._row}: TMDB id and Title are required`);
-    require_(!ids.has(m.id), `Movies row ${m._row}: TMDB id ${m.id} appears twice`);
-    require_(m.added_at && m.updated_at, `Movies row ${m._row}: Added at / Updated at are required`);
-    ids.add(m.id);
+  for (const m of titles) {
+    require_(KINDS.includes(m.kind), `Titles row ${m._row}: Type must be "movie" or "tv", not "${m.kind}"`);
+    require_(m.id != null && m.title, `Titles row ${m._row}: TMDB id and Title are required`);
+    require_(!ids.has(`${m.kind}:${m.id}`), `Titles row ${m._row}: ${m.kind} ${m.id} appears twice`);
+    require_(m.added_at && m.updated_at, `Titles row ${m._row}: Added at / Updated at are required`);
+    ids.add(`${m.kind}:${m.id}`);
   }
+  for (const s of syncs) require_(KINDS.includes(s.kind), `Syncs row ${s._row}: Type must be "movie" or "tv"`);
   for (const a of availability) {
-    require_(ids.has(a.movie_id), `Availability row ${a._row}: TMDB id ${a.movie_id} is not on the Movies sheet`);
+    require_(ids.has(`${a.kind}:${a.title_id}`), `Availability row ${a._row}: ${a.kind} ${a.title_id} is not on the Titles sheet`);
     require_(a.region && a.first_seen && a.last_seen, `Availability row ${a._row}: Country, First seen and Last seen are required`);
   }
 
@@ -137,7 +143,7 @@ async function main() {
   const keys = (def) => def.columns.filter((c) => !c.info).map((c) => c.key);
   try {
     store.transaction(() => {
-      insert('movies', keys(SHEETS.movies), movies.map((m) => ({ ...m, genre_ids: m.genre_ids || '[]' })));
+      insert('titles', keys(SHEETS.titles), titles.map((m) => ({ ...m, genre_ids: m.genre_ids || '[]' })));
       insert('availability', keys(SHEETS.availability), availability);
       insert('catalog_syncs', keys(SHEETS.catalog_syncs), syncs);
       for (const k of EXPORTED_SETTINGS) {
@@ -150,7 +156,7 @@ async function main() {
   }
 
   const s = store.dbStats();
-  console.log(`Restored ${s.movies} movies (${s.rated} with IMDb rating, ${s.pending} waiting for lookup), ` +
+  console.log(`Restored ${s.movies} movies + ${s.shows} TV shows (${s.rated} with IMDb rating, ${s.pending} waiting for lookup), ` +
     `${availability.length} availability rows and ${syncs.length} syncs from ${path.relative(ROOT, input) || input}` +
     (keep.omdbApiKey ? '. Your saved OMDb key was kept.' : '.'));
 }

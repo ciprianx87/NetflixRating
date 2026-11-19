@@ -73,38 +73,107 @@ function startJob(kind, region, fn) {
   return { started: true };
 }
 
-// Fetch every Netflix movie in a region from TMDB and store it.
-async function syncCatalog(region) {
+const KIND_LABEL = { movie: 'movies', tv: 'TV shows' };
+
+// TMDB keyword ids for LGBT themes (community-added tags, so coverage is good but not complete).
+// Found by searching TMDB keywords; ids are stable. Add more here if you spot gaps.
+const LGBT_KEYWORDS = [
+  158718, // lgbt
+  163037, // lgbt teen
+  224000, // lgbt parenting
+  195624, // black lgbt
+  264386, // lesbian
+  9833, //   lesbian relationship
+  258533, // gay theme
+  265777, // gay relationship
+  324058, // gay couple
+  359231, // gay character
+  566, //    sexual identity
+  2316, //   women's sexual identity
+  1013, //   homophobia
+  315385, // lesbian love
+  315382, // lesbian couple
+  319872, // lesbian romance
+  15136, //  female homosexuality
+  10180, //  male homosexuality
+  275157, // homosexuality
+  240305, // gay romance
+  247821, // gay youth
+  346769, // gay interest
+  245045, // gay friend
+  327908, // gay bar
+  190751, // gay muslim
+  238355, // gay pornography
+  3183, //   bisexuality
+  329968, // bisexual
+  168812, // bisexual man
+  287417, // bisexual woman
+  290527, // transgender
+  229325, // transgender rights
+  208798, // trans woman
+  252909, // non-binary
+  250606, // queer
+  329464, // queer childhood
+  265587, // queer horror
+  344292, // queer experience
+  824, //    drag queen
+  1862, //   coming out
+];
+
+// Which Netflix titles of one kind in a region carry any of the LGBT keywords.
+async function fetchLgbtIds(params, kind) {
+  const q = { ...params, with_keywords: LGBT_KEYWORDS.join('|') }; // '|' = any of these
+  const first = await tmdbFetch(`/discover/${kind}`, { ...q, page: 1 });
+  const ids = first.results.map((r) => r.id);
+  for (let page = 2; page <= Math.min(first.total_pages, 500); page++) {
+    ids.push(...(await tmdbFetch(`/discover/${kind}`, { ...q, page })).results.map((r) => r.id));
+  }
+  return ids;
+}
+
+// Fetch every Netflix title of one kind ('movie' or 'tv') in a region from TMDB and store it.
+async function syncCatalogKind(region, kind) {
   const startedAt = store.now();
-  const syncId = store.stmt.startSync.run(region, startedAt).lastInsertRowid;
+  const syncId = store.stmt.startSync.run(region, kind, startedAt).lastInsertRowid;
+  const endpoint = `/discover/${kind}`;
+  job.done = 0;
   const params = {
     watch_region: region, with_watch_providers: NETFLIX_PROVIDER_ID, with_watch_monetization_types: 'flatrate',
     include_adult: 'false', language: 'en-US', sort_by: 'popularity.desc',
   };
   try {
-    const first = await tmdbFetch('/discover/movie', { ...params, page: 1 });
+    const first = await tmdbFetch(endpoint, { ...params, page: 1 });
     const pages = Math.min(first.total_pages, 500);
     job.total = first.total_results;
     let newTitles = 0;
     const save = (results) => {
-      newTitles += store.transaction(() => results.reduce((n, m) => n + store.saveMovie(m, region, startedAt), 0));
+      newTitles += store.transaction(() => results.reduce((n, m) => n + store.saveTitle(kind, m, region, startedAt), 0));
       job.done += results.length;
-      job.message = `Fetched ${job.done.toLocaleString()} of ${job.total.toLocaleString()} titles`;
+      job.message = `Fetched ${job.done.toLocaleString()} of ${job.total.toLocaleString()} ${KIND_LABEL[kind]}`;
     };
     save(first.results);
     const rest = Array.from({ length: pages - 1 }, (_, i) => i + 2);
-    await pool(rest, 6, async (page) => save((await tmdbFetch('/discover/movie', { ...params, page })).results));
+    await pool(rest, 6, async (page) => save((await tmdbFetch(endpoint, { ...params, page })).results));
+    job.message = `Checking LGBT themes in ${KIND_LABEL[kind]}…`;
+    store.setLgbtTags(region, kind, startedAt, await fetchLgbtIds(params, kind));
     store.stmt.finishSync.run(store.now(), job.done, newTitles, null, syncId);
-    return `Catalogue synced: ${job.done.toLocaleString()} titles, ${newTitles} new`;
+    return `${job.done.toLocaleString()} ${KIND_LABEL[kind]} (${newTitles} new)`;
   } catch (e) {
     store.stmt.finishSync.run(store.now(), job.done, null, e.message, syncId);
     throw e;
   }
 }
 
+// Movies first, then TV shows.
+async function syncCatalog(region) {
+  const parts = [];
+  for (const kind of store.KINDS) parts.push(await syncCatalogKind(region, kind));
+  return `Catalogue synced: ${parts.join(', ')}`;
+}
+
 // ---------- settings (editable in the UI, stored in the DB) ----------
 const SETTINGS = {
-  ratingBatchSize: { default: 50, min: 1, max: 1000 }, // movies rated per "Refresh IMDb ratings" run
+  ratingBatchSize: { default: 50, min: 1, max: 1000 }, // titles (movies + TV shows) rated per IMDb sync
 };
 function getSettings() {
   return Object.fromEntries(Object.entries(SETTINGS).map(([k, s]) => [k, store.getSetting(k, s.default)]));
@@ -151,19 +220,19 @@ function omdbUsage() {
 }
 function countOmdbCall() { const u = omdbUsage(); u.count++; store.setSetting('omdbUsage', u); }
 
-// Fetch IMDb ratings for movies that have never been looked up, up to the configured batch size.
+// Fetch IMDb ratings for titles (movies and TV shows) never looked up before, up to the configured batch size.
 async function syncRatings(region) {
   if (!omdbKey()) throw new Error('No OMDb API key — add one in Sync & settings');
   const budget = OMDB_DAILY_LIMIT - omdbUsage().count;
   if (budget <= 0) return 'Daily OMDb budget used up — try again tomorrow';
 
-  const batch = store.moviesNeedingRating(region, Math.min(getSettings().ratingBatchSize, budget));
+  const batch = store.titlesNeedingRating(region, Math.min(getSettings().ratingBatchSize, budget));
   job.done = 0;
   job.total = batch.length;
   if (!batch.length) {
     return store.ratingStats(region).total
-      ? 'All movies in this country already have an IMDb lookup'
-      : 'No movies stored for this country — sync the Netflix catalogue first';
+      ? 'Everything in this country already has an IMDb lookup'
+      : 'Nothing stored for this country — sync the Netflix catalogue first';
   }
   let rated = 0, stopped = null;
 
@@ -172,20 +241,20 @@ async function syncRatings(region) {
     try {
       let imdbId = m.imdb_id;
       if (!imdbId) {
-        imdbId = (await tmdbFetch(`/movie/${m.id}/external_ids`)).imdb_id || null;
-        if (imdbId) store.stmt.setImdbId.run(imdbId, m.id);
+        imdbId = (await tmdbFetch(`/${m.kind}/${m.id}/external_ids`)).imdb_id || null;
+        if (imdbId) store.stmt.setImdbId.run(imdbId, m.kind, m.id);
       }
       if (!imdbId) {
-        store.stmt.setRating.run(null, null, store.now(), m.id); // nothing to look up; don't retry until stale
+        store.stmt.setRating.run(null, null, store.now(), m.kind, m.id); // nothing to look up; never retried
       } else {
         countOmdbCall();
         const r = await omdbFetch(imdbId);
-        store.stmt.setRating.run(r.rating, r.votes, store.now(), m.id);
+        store.stmt.setRating.run(r.rating, r.votes, store.now(), m.kind, m.id);
         if (r.rating != null) rated++;
       }
     } catch (e) {
       if (e.fatal) stopped = e.message;
-      else console.warn(`Rating failed for ${m.id}: ${e.message}`);
+      else console.warn(`Rating failed for ${m.kind} ${m.id}: ${e.message}`);
     }
     job.done++;
     job.message = `Rated ${job.done.toLocaleString()} of ${job.total.toLocaleString()}`;
@@ -195,6 +264,13 @@ async function syncRatings(region) {
 }
 
 // ---------- routes ----------
+
+async function fetchGenres() {
+  const lists = await Promise.all(store.KINDS.map((k) => tmdbFetch(`/genre/${k}/list`, { language: 'en-US' })));
+  const byId = new Map();
+  for (const l of lists) for (const g of l.genres) if (!byId.has(g.id)) byId.set(g.id, g);
+  return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
 
 const cache = new Map();
 async function cached(key, fn) {
@@ -221,18 +297,20 @@ const routes = {
         .sort((a, b) => a.name.localeCompare(b.name));
     }),
 
-  'GET /api/genres': () =>
-    cached('genres', async () => (await tmdbFetch('/genre/movie/list', { language: 'en-US' })).genres),
+  // Movie and TV genre lists merged (shared genres have the same id and name).
+  'GET /api/genres': () => cached('genres', fetchGenres),
 
-  // Everything stored for a region (served from the DB, works offline).
-  'GET /api/movies': (q) => {
+  // Everything stored for a region and kind (served from the DB, works offline).
+  'GET /api/titles': (q) => {
     const region = regionParam(q);
-    const { sync, movies } = store.listMovies(region);
+    const kind = q.get('kind') === 'tv' ? 'tv' : 'movie';
+    const { sync, titles } = store.listTitles(region, kind);
     return {
       region,
+      kind,
       lastSync: sync && { startedAt: sync.started_at, finishedAt: sync.finished_at, total: sync.total, newTitles: sync.new_titles },
-      ratings: store.ratingStats(region),
-      movies: movies.map((m) => ({
+      ratings: store.ratingStats(region, kind),
+      movies: titles.map((m) => ({
         ...m,
         genre_ids: JSON.parse(m.genre_ids || '[]'),
         thumb: m.poster_path ? `https://image.tmdb.org/t/p/w92${m.poster_path}` : null,

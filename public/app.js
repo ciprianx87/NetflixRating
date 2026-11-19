@@ -8,7 +8,8 @@ const batchInput = $('#ratingBatchSize'), settingsForm = $('#settingsForm'), set
 const STATIC = !!window.STATIC_SITE;
 const CHUNK = 120; // rows rendered at a time; more are added while scrolling
 
-const state = { region: 'RO', movies: [], list: [], shown: 0, genres: {}, sort: { key: 'imdb_rating', dir: -1 }, data: null, polling: false };
+const KIND_LABEL = { movie: 'movies', tv: 'TV shows' };
+const state = { region: 'RO', kind: 'movie', movies: [], list: [], shown: 0, genres: {}, sort: { key: 'imdb_rating', dir: -1 }, data: null, polling: false };
 
 async function api(path, opts) {
   const r = await fetch(path, opts);
@@ -22,18 +23,20 @@ const source = STATIC
   ? {
       regions: () => api('data/regions.json'),
       genres: () => api('data/genres.json'),
-      movies: (region) => api(`data/movies-${region}.json`),
+      // A country/kind that was never synced has no file: show it as empty instead of an error.
+      movies: (region, kind) => api(`data/titles-${region}-${kind}.json`)
+        .catch((e) => (e.message === 'Not Found' ? { lastSync: null, ratings: { total: 0, rated: 0 }, movies: [] } : Promise.reject(e))),
     }
   : {
       regions: () => api('/api/regions'),
       genres: () => api('/api/genres'),
-      movies: (region) => api(`/api/movies?region=${region}`),
+      movies: (region, kind) => api(`/api/titles?region=${region}&kind=${kind}`),
     };
 const thumbUrl = (p) => (p ? `https://image.tmdb.org/t/p/w92${p}` : null);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmtDate = (iso) => (iso ? new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '—');
 const fmtDateTime = (iso) => (iso ? new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : 'never');
-const savePrefs = () => { try { localStorage.setItem('prefs', JSON.stringify({ region: state.region, sort: state.sort })); } catch {} };
+const savePrefs = () => { try { localStorage.setItem('prefs', JSON.stringify({ region: state.region, kind: state.kind, sort: state.sort })); } catch {} };
 
 const fmtVotes = (v) => (v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${Math.round(v / 1e3)}k` : String(v));
 
@@ -74,9 +77,10 @@ function render() {
   const min = Number(minRatingSel.value);
   const genre = Number(genreSel.value) || null;
   const minVotes = Number($('#minVotes').value);
+  const lgbt = $('#lgbt').value; // '' = show, 'hide', 'only'
   const { key, dir } = state.sort;
   const list = state.movies
-    .filter((m) => (!q || m.title.toLowerCase().includes(q)) && (!min || (m.imdb_rating ?? 0) >= min) && (!genre || m.genre_ids.includes(genre)) && (!minVotes || (m.imdb_votes ?? 0) >= minVotes))
+    .filter((m) => (!q || m.title.toLowerCase().includes(q)) && (!min || (m.imdb_rating ?? 0) >= min) && (!genre || m.genre_ids.includes(genre)) && (!minVotes || (m.imdb_votes ?? 0) >= minVotes) && (!lgbt || (lgbt === 'only') === (m.lgbt === 1)))
     .sort((a, b) => {
       const x = a[key], y = b[key];
       if (x == null && y == null) return 0;
@@ -100,17 +104,17 @@ function render() {
     sortSel.add(new Option(document.querySelector(`th[data-sort="${key}"]`)?.textContent + (dir === 1 ? ' ↑' : ' ↓'), sortVal));
   }
   sortSel.value = sortVal;
-  const active = [min, minVotes, genre].filter(Boolean).length;
+  const active = [min, minVotes, genre, lgbt].filter(Boolean).length;
   $('#filtersToggle').textContent = active ? `Filters (${active})` : 'Filters';
 
   statusEl.className = 'status';
   statusEl.textContent = !state.data?.lastSync
-    ? (STATIC ? 'No data for this country.' : 'No data stored for this country yet. Open “Sync & settings” and click “Sync Netflix catalogue”.')
+    ? (STATIC ? `No ${KIND_LABEL[state.kind]} for this country yet.` : `No ${KIND_LABEL[state.kind]} stored for this country yet. Open “Sync & settings” and click “Sync Netflix catalogue”.`)
     : list.length ? '' : 'No titles match your filters.';
   const d = state.data;
   if (d?.lastSync) {
     const name = regionSel.selectedOptions[0]?.textContent || state.region;
-    syncInfo.innerHTML = `<strong>${list.length.toLocaleString()}</strong> of <strong>${state.movies.length.toLocaleString()}</strong> movies on Netflix in <strong>${esc(name)}</strong>
+    syncInfo.innerHTML = `<strong>${list.length.toLocaleString()}</strong> of <strong>${state.movies.length.toLocaleString()}</strong> ${KIND_LABEL[state.kind]} on Netflix in <strong>${esc(name)}</strong>
       <span class="more-info">· catalogue updated ${fmtDateTime(d.lastSync.finishedAt)}
       · ${d.ratings.rated.toLocaleString()} with IMDb rating${STATIC ? '' : `, ${(d.ratings.total - d.ratings.checked).toLocaleString()} waiting (last lookup ${fmtDateTime(d.ratings.last)})`}</span>`;
   } else {
@@ -122,7 +126,7 @@ async function loadRegion() {
   rowsEl.innerHTML = '';
   statusEl.textContent = 'Loading…';
   try {
-    state.data = await source.movies(state.region);
+    state.data = await source.movies(state.region, state.kind);
     state.movies = state.data.movies;
     render();
   } catch (e) {
@@ -134,9 +138,10 @@ async function loadRegion() {
 // ----- sync jobs -----
 function showStats(s) {
   const n = (v) => v.toLocaleString();
-  $('#statMovies').textContent = n(s.db.movies);
+  $('#statMovies').textContent = n(s.db.titles);
+  $('#statSplit').textContent = `${n(s.db.movies)} movies · ${n(s.db.shows)} TV shows`;
   $('#statRated').textContent = n(s.db.rated);
-  $('#statRatedPct').textContent = s.db.movies ? `${((s.db.rated / s.db.movies) * 100).toFixed(1)}% of saved movies` : '';
+  $('#statRatedPct').textContent = s.db.titles ? `${((s.db.rated / s.db.titles) * 100).toFixed(1)}% of saved titles` : '';
   $('#statPending').textContent = n(s.db.pending);
   $('#statChecked').textContent = `${n(s.db.checked - s.db.rated)} looked up with no IMDb rating`;
   $('#statOmdb').textContent = n(s.omdbUsedToday);
@@ -197,6 +202,14 @@ async function init() {
   let prefs = {};
   try { prefs = JSON.parse(localStorage.getItem('prefs')) || {}; } catch {}
   if (prefs.sort?.key) state.sort = prefs.sort;
+  if (prefs.kind === 'tv') state.kind = 'tv';
+  const showKind = () => document.querySelectorAll('#kindSeg button').forEach((b) => b.setAttribute('aria-checked', b.dataset.kind === state.kind));
+  showKind();
+  document.querySelectorAll('#kindSeg button').forEach((b) => (b.onclick = () => {
+    if (state.kind === b.dataset.kind) return;
+    state.kind = b.dataset.kind;
+    showKind(); savePrefs(); loadRegion();
+  }));
   let regions = [];
   try {
     const [r, genres] = await Promise.all([source.regions(), source.genres()]);
@@ -214,7 +227,7 @@ async function init() {
   regionSel.value = state.region;
 
   regionSel.onchange = () => { state.region = regionSel.value; savePrefs(); loadRegion(); };
-  filterInput.oninput = minRatingSel.onchange = genreSel.onchange = $('#minVotes').onchange = render;
+  filterInput.oninput = minRatingSel.onchange = genreSel.onchange = $('#minVotes').onchange = $('#lgbt').onchange = render;
   document.querySelectorAll('th[data-sort]').forEach((th) => th.addEventListener('click', () => {
     const key = th.dataset.sort;
     state.sort = { key, dir: state.sort.key === key ? -state.sort.dir : key === 'title' ? 1 : -1 };
