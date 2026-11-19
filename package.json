@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "export": "node scripts/export.js",
-    "restore": "node scripts/restore.js"
+    "restore": "node scripts/restore.js",
+    "build:static": "node scripts/build-static.js"
   },
   "dependencies": {
     "exceljs": "4.4.0"

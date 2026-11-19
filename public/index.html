@@ -2,7 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#ffffff" />
+  <meta name="description" content="Movies on Netflix by country, with IMDb ratings" />
   <title>Netflix Catalogue</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -12,27 +14,37 @@
   <header class="topbar">
     <div class="topleft">
       <div class="brand"><span class="logo">N</span><span>Catalogue</span></div>
+      <!-- server-only -->
       <nav class="tabs" role="tablist">
         <button class="tab" role="tab" data-tab="movies">Movies</button>
         <button class="tab" role="tab" data-tab="sync">Sync &amp; settings <span class="dot" id="jobDot" hidden></span></button>
       </nav>
+      <!-- /server-only -->
+      <button type="button" class="btn filters-toggle movies-only" id="filtersToggle" aria-expanded="false">Filters</button>
     </div>
     <div class="controls">
       <label class="field"><span>Country</span><select id="region"></select></label>
       <label class="field search movies-only"><span>Search</span><input id="filter" type="search" placeholder="Title…" /></label>
-      <label class="field movies-only"><span>Min IMDb</span>
+      <label class="field movies-only extra"><span>Sort</span>
+        <select id="sortSel">
+          <option value="imdb_rating:-1">IMDb rating</option><option value="imdb_votes:-1">Most votes</option>
+          <option value="year:-1">Newest</option><option value="first_seen:-1">Recently added</option>
+          <option value="title:1">Title A–Z</option><option value="tmdb_rating:-1">TMDB rating</option>
+        </select>
+      </label>
+      <label class="field movies-only extra"><span>Min IMDb</span>
         <select id="minRating">
           <option value="0">Any</option><option value="6">6+</option><option value="7">7+</option>
           <option value="7.5">7.5+</option><option value="8">8+</option>
         </select>
       </label>
-      <label class="field movies-only"><span>Min votes</span>
+      <label class="field movies-only extra"><span>Min votes</span>
         <select id="minVotes">
-          <option value="0">Any</option><option value="1000">1k+</option><option value="10000">10k+</option>
+          <option value="0">Any</option><option value="1000" selected>1k+</option><option value="10000">10k+</option>
           <option value="50000">50k+</option><option value="100000">100k+</option><option value="500000">500k+</option>
         </select>
       </label>
-      <label class="field movies-only"><span>Genre</span><select id="genre"><option value="">All</option></select></label>
+      <label class="field movies-only extra"><span>Genre</span><select id="genre"><option value="">All</option></select></label>
     </div>
     <div class="progress" id="progress"><div></div></div>
   </header>
@@ -59,8 +71,15 @@
       </table>
     </div>
     <div class="status" id="status"></div>
+    <div id="sentinel"></div>
+    <footer class="credits">
+      <span id="builtAt"></span>
+      Netflix availability from <a href="https://www.themoviedb.org/" target="_blank" rel="noopener">TMDB</a> (JustWatch data), ratings from <a href="https://www.omdbapi.com/" target="_blank" rel="noopener">OMDb</a>/IMDb.
+      This product uses the TMDB API but is not endorsed or certified by TMDB.
+    </footer>
   </main>
 
+  <!-- server-only -->
   <!-- ===== Sync & settings tab ===== -->
   <section id="tab-sync" class="tabpane panel" hidden>
     <div class="stats">
@@ -112,6 +131,7 @@
       </form>
     </div>
   </section>
+  <!-- /server-only -->
 
   <script src="app.js"></script>
 </body>

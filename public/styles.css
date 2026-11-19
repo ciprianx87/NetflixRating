@@ -135,15 +135,48 @@ table.grid { width: 100%; border-collapse: collapse; }
 .status { text-align: center; color: var(--muted); padding: 30px 0; }
 .status.error { color: var(--error); }
 
+/* phone-only bits, hidden on larger screens */
+.filters-toggle, .t-meta { display: none; }
+.credits { margin-top: 28px; color: var(--muted); font-size: 12px; line-height: 1.6; text-align: center; }
+.credits a { color: inherit; }
+
 @media (max-width: 900px) {
   .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .cards { grid-template-columns: 1fr; }
   .c-genre, .c-votes, .c-tmdb, .grid td.c-genre, .grid td.c-votes, .grid td.c-tmdb { display: none; }
 }
 @media (max-width: 640px) {
-  .topbar, .panel, main { padding-left: 16px; padding-right: 16px; }
-  .controls { width: 100%; display: grid; grid-template-columns: 1fr 1fr; }
-  .field select, .field input, .field.search input { min-width: 0; width: 100%; }
-  .grid th { position: static; }
-  .c-date, .grid td.c-date { display: none; }
+  .topbar, .panel, main { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
+  .topbar { padding-top: 10px; padding-bottom: 10px; gap: 10px; }
+  .topleft { width: 100%; justify-content: space-between; gap: 10px; }
+  .brand { font-size: 18px; }
+  .logo { width: 30px; height: 30px; }
+  .tabs .tab { padding: 6px 10px; }
+
+  /* Country + search always visible; the rest behind the Filters button */
+  .filters-toggle { display: inline-block; margin-left: auto; }
+  body[data-tab="sync"] .filters-toggle { display: none; }
+  .controls { width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .controls .extra { display: none; }
+  body.filters-open .controls .extra { display: flex; }
+  .field select, .field input, .field.search input { min-width: 0; width: 100%; font-size: 16px; } /* 16px stops iOS zooming in */
+
+  main { padding-top: 10px; padding-bottom: max(40px, env(safe-area-inset-bottom)); }
+  main .syncinfo { font-size: 12px; }
+  .more-info { display: block; margin-top: 2px; }
+
+  /* Table becomes a list: poster | title + details | IMDb badge */
+  .grid thead { display: none; }
+  .grid, .grid tbody { display: block; }
+  .grid tbody tr { display: grid; grid-template-columns: 46px minmax(0, 1fr) auto; gap: 12px; align-items: center;
+                   padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  .grid tbody tr:last-child { border-bottom: 0; }
+  .grid tbody tr:hover { background: none; }
+  .grid td { padding: 0; border: 0; }
+  .grid td.c-year, .grid td.c-genre, .grid td.c-votes, .grid td.c-tmdb, .grid td.c-date { display: none; }
+  .thumb { width: 46px; height: 69px; }
+  .t-title { font-size: 15px; line-height: 1.3; }
+  .t-meta { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .t-orig { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; margin-top: 4px; }
+  .imdb { font-size: 14px; padding: 5px 8px; min-width: 42px; }
 }

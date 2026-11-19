@@ -40,3 +40,15 @@ Both accept a file path, e.g. `npm run export -- snapshots/2026-11-19.xlsx`.
 - The OMDb key and the daily call counter are **never exported**, so the snapshot is safe to commit. On restore, the key saved in your current database is kept.
 - Restore checks the whole file before changing anything, refuses to run while the server is running, and moves the current database to `data/backups/` first.
 - Empty values and line breaks are stored in a form that survives the round trip, so a restore gives back exactly the same rows.
+
+## Read-only site on GitHub Pages
+A copy of the Movies view your friends can open on any device, phone included. It has no server, no sync buttons and no API keys: the page reads JSON files built from your local database.
+
+To update it after syncing:
+```bash
+npm run build:static   # writes docs/ from data/netflix.db
+git add docs && git commit -m "Update site data" && git push
+```
+One-time setup: on GitHub, open **Settings → Pages**, set **Source** to *Deploy from a branch*, choose **main** and **/docs**, then save. The site appears at `https://<user>.github.io/NetflixRating/` within a minute or two.
+
+Free GitHub accounts can only use Pages on public repositories, so the repo (including the Excel snapshot) is visible to anyone.
