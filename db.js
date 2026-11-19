@@ -77,11 +77,22 @@ const stmt = {
   setRating: db.prepare('UPDATE movies SET imdb_rating = ?, imdb_votes = ?, rating_updated_at = ? WHERE id = ?'),
 };
 
+// Text is stored in one canonical form so it survives an Excel round trip unchanged:
+// empty strings become NULL and \r\n / \r line breaks become \n.
+const clean = (s) => (s == null || s === '' ? null : String(s).replace(/\r\n?/g, '\n'));
+
+// One-time cleanup of rows saved before this rule existed (cheap no-op afterwards).
+for (const col of ['title', 'original_title', 'year', 'release_date', 'poster_path', 'overview']) {
+  db.exec(`UPDATE movies SET ${col} = NULL WHERE ${col} = ''`);
+}
+db.exec(`UPDATE movies SET overview = replace(replace(overview, char(13) || char(10), char(10)), char(13), char(10))
+         WHERE instr(overview, char(13)) > 0`);
+
 // Save one TMDB discover result. Only bumps updated_at when the metadata actually changed.
 function saveMovie(m, region, seenAt) {
   const row = [
-    m.title, m.original_title, (m.release_date || '').slice(0, 4), m.release_date || null, m.poster_path,
-    m.overview, JSON.stringify(m.genre_ids || []),
+    clean(m.title) || '(untitled)', clean(m.original_title), clean((m.release_date || '').slice(0, 4)), clean(m.release_date),
+    clean(m.poster_path), clean(m.overview), JSON.stringify(m.genre_ids || []),
   ];
   const existing = stmt.getMovie.get(m.id);
   let isNew = false;

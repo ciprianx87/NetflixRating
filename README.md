@@ -27,3 +27,16 @@ The **Movies** tab shows the stored list; the **Sync & settings** tab has the da
 | `catalog_syncs` | history of each catalogue sync |
 
 `config.json` and `data/` are git-ignored.
+
+## Snapshots (Excel)
+```bash
+npm run export     # data/netflix.db → snapshots/netflix.xlsx
+npm run restore    # snapshots/netflix.xlsx → data/netflix.db
+```
+Both accept a file path, e.g. `npm run export -- snapshots/2026-11-19.xlsx`.
+
+- The workbook has **Movies**, **Availability**, **Syncs** and **Info** sheets, with filters and a frozen header row, so you can filter it in Excel.
+- Red column headers are restored; grey ones (Genres, Countries, IMDb link, and the title on the Availability sheet) are for reading only.
+- The OMDb key and the daily call counter are **never exported**, so the snapshot is safe to commit. On restore, the key saved in your current database is kept.
+- Restore checks the whole file before changing anything, refuses to run while the server is running, and moves the current database to `data/backups/` first.
+- Empty values and line breaks are stored in a form that survives the round trip, so a restore gives back exactly the same rows.

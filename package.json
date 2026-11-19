@@ -3,5 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "description": "Browse the Netflix catalogue per country (via TMDB)",
-  "scripts": { "start": "node server.js" }
+  "scripts": {
+    "start": "node server.js",
+    "export": "node scripts/export.js",
+    "restore": "node scripts/restore.js"
+  },
+  "dependencies": {
+    "exceljs": "4.4.0"
+  }
 }
